@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/jsonapi"
+	"github.com/airomega/jsonapi"
 )
 
 // Blog is a model representing a blog site

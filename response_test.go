@@ -227,12 +227,12 @@ func TestMarshalIDPtr(t *testing.T) {
 func TestMarshalEmbeddedIDPtr(t *testing.T) {
 	id, make, model, flux := "123e4567-e89b-12d3-a456-426655440000", "DeLorean", "DMC-12", true
 	delorean := &Delorean{
-		Car:&Car{
+		Car: &Car{
 			ID:    &id,
 			Make:  &make,
 			Model: &model,
 		},
-		FluxCapacitorInstalled:flux,
+		FluxCapacitorInstalled: flux,
 	}
 
 	out := bytes.NewBuffer(nil)
@@ -261,11 +261,10 @@ func TestMarshalEmbeddedIDPtr(t *testing.T) {
 		t.Fatal("Was expecting the data.id member to exist")
 	}
 
-	if m, exists := attr["make"]; !exists || make != m{
+	if m, exists := attr["make"]; !exists || make != m {
 		t.Fatalf("Was expecting the data.make member to be `%s`, got `%s`", make, m)
 	}
 }
-
 
 func TestMarshalOnePayload_omitIDString(t *testing.T) {
 	type Foo struct {

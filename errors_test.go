@@ -50,7 +50,7 @@ func TestMarshalErrorsWritesTheExpectedPayload(t *testing.T) {
 			json.Unmarshal(buffer.Bytes(), &output)
 
 			if !reflect.DeepEqual(output, testRow.Out) {
-				t.Fatalf("Expected: \n%#v \nto equal: \n%#v", output, testRow.Out)
+				t.Fatalf("Expected: \n%#v \not equal: \n%#v", output, testRow.Out)
 			}
 		})
 	}

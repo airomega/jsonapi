@@ -79,7 +79,7 @@ type Blog struct {
 }
 
 type Delorean struct {
-	*Car                   `jsonapi:"embedded"`
+	*Car                   `jsonapi:"embedded,delorean"`
 	FluxCapacitorInstalled bool `jsonapi:"attr,flux-installed"`
 }
 

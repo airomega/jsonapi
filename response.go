@@ -28,6 +28,24 @@ var (
 	ErrUnexpectedType = errors.New("models should be a struct pointer or slice of struct pointers")
 )
 
+type fieldbuilder struct {
+	model interface{}
+
+	node     *Node
+	included *map[string]*Node
+	sideload bool
+
+	annotation string
+	nodeType   string
+	args       []string
+
+	fieldValue reflect.Value
+	fieldType  reflect.StructField
+
+	linkableModel RelationshipLinkable
+	metableModel  RelationshipMetable
+}
+
 // MarshalPayload writes a jsonapi response for one or many records. The
 // related records are sideloaded into the "included" array. If this method is
 // given a struct pointer as an argument it will serialize in the form
@@ -68,10 +86,7 @@ func MarshalPayload(w io.Writer, models interface{}) error {
 		return err
 	}
 
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		return err
-	}
-	return nil
+	return json.NewEncoder(w).Encode(payload)
 }
 
 // Marshal does the same as MarshalPayload except it just returns the payload
@@ -128,10 +143,7 @@ func MarshalPayloadWithoutIncluded(w io.Writer, model interface{}) error {
 	}
 	payload.clearIncluded()
 
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		return err
-	}
-	return nil
+	return json.NewEncoder(w).Encode(payload)
 }
 
 // marshalOne does the same as MarshalOnePayload except it just returns the
@@ -193,56 +205,31 @@ func MarshalOnePayloadEmbedded(w io.Writer, model interface{}) error {
 
 	payload := &OnePayload{Data: rootNode}
 
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-type nodeBuilder struct {
-	model    interface{}
-	included *map[string]*Node
-	sideload bool
-
-	modelValue reflect.Value
-	modelType  reflect.Type
-
-	node *Node
-}
-
-type fieldbuilder struct {
-	nodeBuilder
-	annotation string
-	nodeType   string
-	args       []string
-	fieldValue reflect.Value
-	fieldType  reflect.StructField
+	return json.NewEncoder(w).Encode(payload)
 }
 
 func visitModelNode(model interface{}, included *map[string]*Node,
 	sideload bool) (*Node, error) {
-	mb := nodeBuilder{
-		model:      model,
-		included:   included,
-		sideload:   sideload,
-		modelValue: reflect.ValueOf(model).Elem(),
-		modelType:  reflect.ValueOf(model).Type().Elem(),
-		node:       new(Node),
-	}
 
-	for i := 0; i < mb.modelValue.NumField(); i++ {
-		structField := mb.modelValue.Type().Field(i)
+	node := new(Node)
+	modelValue := reflect.ValueOf(model).Elem()
+	modelType := reflect.ValueOf(model).Type().Elem()
+
+	for i := 0; i < modelValue.NumField(); i++ {
+		structField := modelValue.Type().Field(i)
 		tag := structField.Tag.Get(annotationJSONAPI)
 		if tag == "" {
 			continue
 		}
 
 		fb := fieldbuilder{
-			nodeBuilder: mb,
-			args:        strings.Split(tag, annotationSeperator),
-			fieldValue:  mb.modelValue.Field(i),
-			fieldType:   mb.modelType.Field(i),
+			model:      model,
+			node:       node,
+			included:   included,
+			sideload:   sideload,
+			args:       strings.Split(tag, annotationSeperator),
+			fieldValue: modelValue.Field(i),
+			fieldType:  modelType.Field(i),
 		}
 
 		if len(fb.args) < 1 {
@@ -252,35 +239,31 @@ func visitModelNode(model interface{}, included *map[string]*Node,
 		annotation := fb.args[0]
 
 		if (annotation == annotationClientID && len(fb.args) != 1) ||
-			(annotation == annotationEmbedded && len(fb.args) != 1) {
+			(annotation != annotationClientID && len(fb.args) < 2) {
 			return nil, ErrBadJSONAPIStructTag
 		}
 
-		if annotation != annotationClientID && len(fb.args) < 2 &&
-			annotation != annotationEmbedded && len(fb.args) < 2 {
-			return nil, ErrBadJSONAPIStructTag
-		}
-
-		if annotation == annotationPrimary {
+		switch annotation {
+		case annotationPrimary:
 			if err := fb.doPrimary(); err != nil {
 				return fb.node, err
 			}
-		} else if annotation == annotationClientID {
+		case annotationClientID:
 			clientID := fb.fieldValue.String()
 			if clientID != "" {
 				fb.node.ClientID = clientID
 			}
-		} else if annotation == annotationEmbedded {
+		case annotationEmbedded:
 			if err := fb.doEmbedded(); err != nil {
 				return nil, err
 			}
-		} else if annotation == annotationAttribute {
+		case annotationAttribute:
 			fb.doAttribute()
-		} else if annotation == annotationRelation {
+		case annotationRelation:
 			if err := fb.doRelation(); err != nil {
 				return nil, err
 			}
-		} else {
+		default:
 			return nil, ErrBadJSONAPIStructTag
 		}
 	}
@@ -290,14 +273,14 @@ func visitModelNode(model interface{}, included *map[string]*Node,
 		if er := jl.validate(); er != nil {
 			return nil, er
 		}
-		mb.node.Links = linkableModel.JSONAPILinks()
+		node.Links = linkableModel.JSONAPILinks()
 	}
 
 	if metableModel, ok := model.(Metable); ok {
-		mb.node.Meta = metableModel.JSONAPIMeta()
+		node.Meta = metableModel.JSONAPIMeta()
 	}
 
-	return mb.node, nil
+	return node, nil
 }
 
 func (fb fieldbuilder) doPrimary() error {
