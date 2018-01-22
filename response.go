@@ -78,8 +78,12 @@ func MarshalPayload(w io.Writer, models interface{}) error {
 // and doesn't write out results. Useful if you use your own JSON rendering
 // library.
 func Marshal(models interface{}) (Payloader, error) {
+	fmt.Println(fmt.Sprintf("models:%v", models))
+
 	switch vals := reflect.ValueOf(models); vals.Kind() {
 	case reflect.Slice:
+		fmt.Println(fmt.Sprintf("slice"))
+
 		m, err := convertToSliceInterface(&models)
 		if err != nil {
 			return nil, err
@@ -104,12 +108,16 @@ func Marshal(models interface{}) (Payloader, error) {
 
 		return payload, nil
 	case reflect.Ptr:
+		fmt.Println(fmt.Sprintf("ptr"))
+		fmt.Println(fmt.Sprintf("type:%v", models))
+
 		// Check that the pointer was to a struct
 		if reflect.Indirect(vals).Kind() != reflect.Struct {
 			return nil, ErrUnexpectedType
 		}
 		return marshalOne(models)
 	default:
+		fmt.Println(fmt.Sprintf("type:%v",reflect.ValueOf(models)))
 		return nil, ErrUnexpectedType
 	}
 }
@@ -140,11 +148,15 @@ func MarshalPayloadWithoutIncluded(w io.Writer, model interface{}) error {
 func marshalOne(model interface{}) (*OnePayload, error) {
 	included := make(map[string]*Node)
 
+	fmt.Println(fmt.Sprintf("Model:%v", model))
+
 	rootNode, err := visitModelNode(model, &included, true)
 	if err != nil {
 		return nil, err
 	}
 	payload := &OnePayload{Data: rootNode}
+
+	fmt.Println(fmt.Sprintf("rootNode:%v", rootNode))
 
 	payload.Included = nodeMapValues(&included)
 
@@ -205,13 +217,19 @@ func MarshalOnePayloadEmbedded(w io.Writer, model interface{}) error {
 func visitModelNode(model interface{}, included *map[string]*Node,
 	sideload bool) (*Node, error) {
 	node := new(Node)
-
 	var er error
 
 	modelValue := reflect.ValueOf(model).Elem()
 	modelType := reflect.ValueOf(model).Type().Elem()
 
+	fmt.Println(fmt.Sprintf("modelValue:%v", modelValue))
+	fmt.Println(fmt.Sprintf("modelType:%v", modelType))
+
+	fmt.Println(fmt.Sprintf("visitModelNode:%v", modelValue.NumField()))
+
 	for i := 0; i < modelValue.NumField(); i++ {
+		fmt.Println(fmt.Sprintf("i:%v", i))
+
 		structField := modelValue.Type().Field(i)
 		tag := structField.Tag.Get(annotationJSONAPI)
 		if tag == "" {
@@ -237,121 +255,33 @@ func visitModelNode(model interface{}, included *map[string]*Node,
 		}
 
 		if annotation == annotationPrimary {
-			v := fieldValue
-
-			// Deal with PTRS
-			var kind reflect.Kind
-			if fieldValue.Kind() == reflect.Ptr {
-				kind = fieldType.Type.Elem().Kind()
-				v = reflect.Indirect(fieldValue)
-			} else {
-				kind = fieldType.Type.Kind()
+			if err := doPrimary(args, node, fieldValue, fieldType); err != nil {
+				return node, err
 			}
-
-			// Handle allowed types
-			switch kind {
-			case reflect.String:
-				node.ID = v.Interface().(string)
-			case reflect.Int:
-				node.ID = strconv.FormatInt(int64(v.Interface().(int)), 10)
-			case reflect.Int8:
-				node.ID = strconv.FormatInt(int64(v.Interface().(int8)), 10)
-			case reflect.Int16:
-				node.ID = strconv.FormatInt(int64(v.Interface().(int16)), 10)
-			case reflect.Int32:
-				node.ID = strconv.FormatInt(int64(v.Interface().(int32)), 10)
-			case reflect.Int64:
-				node.ID = strconv.FormatInt(v.Interface().(int64), 10)
-			case reflect.Uint:
-				node.ID = strconv.FormatUint(uint64(v.Interface().(uint)), 10)
-			case reflect.Uint8:
-				node.ID = strconv.FormatUint(uint64(v.Interface().(uint8)), 10)
-			case reflect.Uint16:
-				node.ID = strconv.FormatUint(uint64(v.Interface().(uint16)), 10)
-			case reflect.Uint32:
-				node.ID = strconv.FormatUint(uint64(v.Interface().(uint32)), 10)
-			case reflect.Uint64:
-				node.ID = strconv.FormatUint(v.Interface().(uint64), 10)
-			default:
-				// We had a JSON float (numeric), but our field was not one of the
-				// allowed numeric types
-				er = ErrBadJSONAPIID
-				break
-			}
-
-			node.Type = args[1]
 		} else if annotation == annotationClientID {
 			clientID := fieldValue.String()
 			if clientID != "" {
 				node.ClientID = clientID
 			}
-		} else if annotation == annotationAttribute {
-			var omitEmpty, iso8601 bool
-
-			if len(args) > 2 {
-				for _, arg := range args[2:] {
-					switch arg {
-					case annotationOmitEmpty:
-						omitEmpty = true
-					case annotationISO8601:
-						iso8601 = true
-					}
-				}
-			}
-
+		} else if annotation == annotationEmbedded {
 			if node.Attributes == nil {
 				node.Attributes = make(map[string]interface{})
 			}
+			fmt.Println(fmt.Sprintf("embedded:%v", fieldValue))
+			fmt.Println(fmt.Sprintf("embedded:%v", fieldType))
 
-			if fieldValue.Type() == reflect.TypeOf(time.Time{}) {
-				t := fieldValue.Interface().(time.Time)
-
-				if t.IsZero() {
-					continue
-				}
-
-				if iso8601 {
-					node.Attributes[args[1]] = t.UTC().Format(iso8601TimeFormat)
-				} else {
-					node.Attributes[args[1]] = t.Unix()
-				}
-			} else if fieldValue.Type() == reflect.TypeOf(new(time.Time)) {
-				// A time pointer may be nil
-				if fieldValue.IsNil() {
-					if omitEmpty {
-						continue
-					}
-
-					node.Attributes[args[1]] = nil
-				} else {
-					tm := fieldValue.Interface().(*time.Time)
-
-					if tm.IsZero() && omitEmpty {
-						continue
-					}
-
-					if iso8601 {
-						node.Attributes[args[1]] = tm.UTC().Format(iso8601TimeFormat)
-					} else {
-						node.Attributes[args[1]] = tm.Unix()
-					}
-				}
-			} else {
-				// Dealing with a fieldValue that is not a time
-				emptyValue := reflect.Zero(fieldValue.Type())
-
-				// See if we need to omit this field
-				if omitEmpty && fieldValue.Interface() == emptyValue.Interface() {
-					continue
-				}
-
-				strAttr, ok := fieldValue.Interface().(string)
-				if ok {
-					node.Attributes[args[1]] = strAttr
-				} else {
-					node.Attributes[args[1]] = fieldValue.Interface()
-				}
+			n, err := visitModelNode(fieldValue.Interface(), included, sideload)
+			if err != nil {
+				return nil,err
 			}
+
+			node.ID = n.ID
+			for k,v := range n.Attributes {
+				node.Attributes[k] = v
+			}
+
+		} else if annotation == annotationAttribute {
+			doAttribute(args, node, fieldValue)
 		} else if annotation == annotationRelation {
 			var omitEmpty bool
 
@@ -469,6 +399,124 @@ func visitModelNode(model interface{}, included *map[string]*Node,
 
 	return node, nil
 }
+
+func doPrimary(args []string,node *Node, fieldValue reflect.Value, fieldType reflect.StructField) error {
+	v := fieldValue
+
+	// Deal with PTRS
+	var kind reflect.Kind
+	if fieldValue.Kind() == reflect.Ptr {
+		kind = fieldType.Type.Elem().Kind()
+		v = reflect.Indirect(fieldValue)
+	} else {
+		kind = fieldType.Type.Kind()
+	}
+
+	// Handle allowed types
+	switch kind {
+	case reflect.String:
+		node.ID = v.Interface().(string)
+	case reflect.Int:
+		node.ID = strconv.FormatInt(int64(v.Interface().(int)), 10)
+	case reflect.Int8:
+		node.ID = strconv.FormatInt(int64(v.Interface().(int8)), 10)
+	case reflect.Int16:
+		node.ID = strconv.FormatInt(int64(v.Interface().(int16)), 10)
+	case reflect.Int32:
+		node.ID = strconv.FormatInt(int64(v.Interface().(int32)), 10)
+	case reflect.Int64:
+		node.ID = strconv.FormatInt(v.Interface().(int64), 10)
+	case reflect.Uint:
+		node.ID = strconv.FormatUint(uint64(v.Interface().(uint)), 10)
+	case reflect.Uint8:
+		node.ID = strconv.FormatUint(uint64(v.Interface().(uint8)), 10)
+	case reflect.Uint16:
+		node.ID = strconv.FormatUint(uint64(v.Interface().(uint16)), 10)
+	case reflect.Uint32:
+		node.ID = strconv.FormatUint(uint64(v.Interface().(uint32)), 10)
+	case reflect.Uint64:
+		node.ID = strconv.FormatUint(v.Interface().(uint64), 10)
+	default:
+		// We had a JSON float (numeric), but our field was not one of the
+		// allowed numeric types
+		return ErrBadJSONAPIID
+	}
+
+	node.Type = args[1]
+	return nil
+}
+
+func doAttribute(args []string,node *Node, fieldValue reflect.Value){
+	var omitEmpty, iso8601 bool
+
+	if len(args) > 2 {
+		for _, arg := range args[2:] {
+			switch arg {
+			case annotationOmitEmpty:
+				omitEmpty = true
+			case annotationISO8601:
+				iso8601 = true
+			}
+		}
+	}
+
+	if node.Attributes == nil {
+		node.Attributes = make(map[string]interface{})
+	}
+
+	if fieldValue.Type() == reflect.TypeOf(time.Time{}) {
+		t := fieldValue.Interface().(time.Time)
+
+		if t.IsZero() {
+			return
+		}
+
+		if iso8601 {
+			node.Attributes[args[1]] = t.UTC().Format(iso8601TimeFormat)
+		} else {
+			node.Attributes[args[1]] = t.Unix()
+		}
+	} else if fieldValue.Type() == reflect.TypeOf(new(time.Time)) {
+		// A time pointer may be nil
+		if fieldValue.IsNil() {
+			if omitEmpty {
+				return
+			}
+
+			node.Attributes[args[1]] = nil
+		} else {
+			tm := fieldValue.Interface().(*time.Time)
+
+			if tm.IsZero() && omitEmpty {
+				return
+			}
+
+			if iso8601 {
+				node.Attributes[args[1]] = tm.UTC().Format(iso8601TimeFormat)
+			} else {
+				node.Attributes[args[1]] = tm.Unix()
+			}
+		}
+	} else {
+		fmt.Println(fmt.Sprintf("not tiem"))
+		emptyValue := reflect.Zero(fieldValue.Type())
+
+		// See if we need to omit this field
+		if omitEmpty && fieldValue.Interface() == emptyValue.Interface() {
+			return
+		}
+
+		strAttr, ok := fieldValue.Interface().(string)
+		fmt.Println(fmt.Sprintf("strAttr:%s",strAttr))
+
+		if ok {
+			node.Attributes[args[1]] = strAttr
+		} else {
+			node.Attributes[args[1]] = fieldValue.Interface()
+		}
+	}
+}
+
 
 func toShallowNode(node *Node) *Node {
 	return &Node{

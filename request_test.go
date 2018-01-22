@@ -564,6 +564,7 @@ func TestUnmarshalNestedRelationshipsEmbedded_withClientIDs(t *testing.T) {
 	}
 }
 
+
 func unmarshalSamplePayload() (*Blog, error) {
 	in := samplePayload()
 	out := new(Blog)
@@ -701,6 +702,10 @@ func TestManyPayload_withLinks(t *testing.T) {
 	if e, a := lastPageURL, last; e != a {
 		t.Fatalf("Was expecting links.%s to have a value of %s, got %s", KeyLastPage, e, a)
 	}
+}
+
+func TestUnmarshalPayload_Embedded(t *testing.T) {
+
 }
 
 func samplePayloadWithoutIncluded() map[string]interface{} {

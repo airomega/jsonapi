@@ -78,6 +78,11 @@ type Blog struct {
 	ViewCount     int       `jsonapi:"attr,view_count"`
 }
 
+type Delorean struct {
+	*Car `jsonapi:"embedded,flux-installed"`
+	FluxCapacitorInstalled bool  `jsonapi:"attr,flux-installed"`
+}
+
 func (b *Blog) JSONAPILinks() *Links {
 	return &Links{
 		"self": fmt.Sprintf("https://example.com/api/blogs/%d", b.ID),

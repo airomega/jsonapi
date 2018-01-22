@@ -7,6 +7,7 @@ import (
 	"sort"
 	"testing"
 	"time"
+	"fmt"
 )
 
 func TestMarshalPayload(t *testing.T) {
@@ -223,6 +224,51 @@ func TestMarshalIDPtr(t *testing.T) {
 		t.Fatalf("Was expecting the data.id member to be `%s`, got `%s`", id, val)
 	}
 }
+
+func TestMarshalEmbeddedIDPtr(t *testing.T) {
+	id, make, model, flux := "123e4567-e89b-12d3-a456-426655440000", "DeLorean", "DMC-12", true
+	delorean := &Delorean{
+		Car:&Car{
+			ID:    &id,
+			Make:  &make,
+			Model: &model,
+		},
+		FluxCapacitorInstalled:flux,
+	}
+
+	out := bytes.NewBuffer(nil)
+	if err := MarshalPayload(out, delorean); err != nil {
+		t.Fatal(err)
+	}
+
+	fmt.Println(string(out.Bytes()))
+
+	var jsonData map[string]interface{}
+	if err := json.Unmarshal(out.Bytes(), &jsonData); err != nil {
+		t.Fatal(err)
+	}
+	data := jsonData["data"].(map[string]interface{})
+	// attributes := data["attributes"].(map[string]interface{})
+
+	// Verify that the ID was sent
+	val, exists := data["id"]
+	if !exists {
+		t.Fatal("Was expecting the data.id member to exist")
+	}
+	if val != id {
+		t.Fatalf("Was expecting the data.id member to be `%s`, got `%s`", id, val)
+	}
+
+	attr, exists := data["attributes"].(map[string]interface{})
+	if !exists {
+		t.Fatal("Was expecting the data.id member to exist")
+	}
+
+	if m, exists := attr["make"]; !exists || make != m{
+		t.Fatalf("Was expecting the data.make member to be `%s`, got `%s`", make, m)
+	}
+}
+
 
 func TestMarshalOnePayload_omitIDString(t *testing.T) {
 	type Foo struct {
