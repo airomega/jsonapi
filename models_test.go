@@ -79,8 +79,8 @@ type Blog struct {
 }
 
 type Delorean struct {
-	*Car `jsonapi:"embedded,flux-installed"`
-	FluxCapacitorInstalled bool  `jsonapi:"attr,flux-installed"`
+	*Car                   `jsonapi:"embedded"`
+	FluxCapacitorInstalled bool `jsonapi:"attr,flux-installed"`
 }
 
 func (b *Blog) JSONAPILinks() *Links {

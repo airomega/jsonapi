@@ -552,6 +552,21 @@ func TestUnmarshalNestedRelationshipsSideloaded(t *testing.T) {
 	}
 }
 
+func TestUnmarshalEmbedded(t *testing.T) {
+	d := new(Delorean)
+	if err := UnmarshalPayload(testDeloreanPayload(), d); err != nil {
+		t.Fatal(err)
+	}
+
+	if *d.Make != "Delorean" {
+		t.Fatalf("expecting the make`%s`, got `%s`", "Delorean", d.Make)
+	}
+
+	if !d.FluxCapacitorInstalled {
+		t.Fatal("expecting a fluc capicitor to be installed but it wasn't")
+	}
+}
+
 func TestUnmarshalNestedRelationshipsEmbedded_withClientIDs(t *testing.T) {
 	model := new(Blog)
 
@@ -563,7 +578,6 @@ func TestUnmarshalNestedRelationshipsEmbedded_withClientIDs(t *testing.T) {
 		t.Fatalf("ClientID not set from request on related record")
 	}
 }
-
 
 func unmarshalSamplePayload() (*Blog, error) {
 	in := samplePayload()
@@ -702,10 +716,6 @@ func TestManyPayload_withLinks(t *testing.T) {
 	if e, a := lastPageURL, last; e != a {
 		t.Fatalf("Was expecting links.%s to have a value of %s, got %s", KeyLastPage, e, a)
 	}
-}
-
-func TestUnmarshalPayload_Embedded(t *testing.T) {
-
 }
 
 func samplePayloadWithoutIncluded() map[string]interface{} {
@@ -855,6 +865,25 @@ func sampleWithPointerPayload(m map[string]interface{}) io.Reader {
 			ID:         "2",
 			Type:       "with-pointers",
 			Attributes: m,
+		},
+	}
+
+	out := bytes.NewBuffer(nil)
+	json.NewEncoder(out).Encode(payload)
+
+	return out
+}
+
+func testDeloreanPayload() io.Reader {
+	payload := &OnePayload{
+		Data: &Node{
+			Type: "cars",
+			Attributes: map[string]interface{}{
+				"make":           "Delorean",
+				"model":          "DMC-12",
+				"year":           1000,
+				"flux-installed": true,
+			},
 		},
 	}
 

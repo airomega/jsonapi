@@ -148,9 +148,13 @@ func unmarshalNode(data *Node, model reflect.Value, included *map[string]*Node) 
 		annotation := args[0]
 
 		if (annotation == annotationClientID && len(args) != 1) ||
-			(annotation != annotationClientID && len(args) < 2) {
-			er = ErrBadJSONAPIStructTag
-			break
+			(annotation == annotationEmbedded && len(args) != 1) {
+			return ErrBadJSONAPIStructTag
+		}
+
+		if annotation != annotationClientID && len(args) < 2 &&
+			annotation != annotationEmbedded && len(args) < 2 {
+			return ErrBadJSONAPIStructTag
 		}
 
 		if annotation == annotationPrimary {
@@ -450,6 +454,8 @@ func unmarshalNode(data *Node, model reflect.Value, included *map[string]*Node) 
 				return ErrInvalidType
 			}
 			fieldValue.Set(reflect.ValueOf(val))
+
+		} else if annotation == annotationEmbedded {
 
 		} else if annotation == annotationRelation {
 			isSlice := fieldValue.Type().Kind() == reflect.Slice

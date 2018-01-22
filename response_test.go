@@ -7,7 +7,6 @@ import (
 	"sort"
 	"testing"
 	"time"
-	"fmt"
 )
 
 func TestMarshalPayload(t *testing.T) {
@@ -240,8 +239,6 @@ func TestMarshalEmbeddedIDPtr(t *testing.T) {
 	if err := MarshalPayload(out, delorean); err != nil {
 		t.Fatal(err)
 	}
-
-	fmt.Println(string(out.Bytes()))
 
 	var jsonData map[string]interface{}
 	if err := json.Unmarshal(out.Bytes(), &jsonData); err != nil {
