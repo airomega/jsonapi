@@ -174,9 +174,9 @@ func unmarshalNode(node *Node, model reflect.Value, included *map[string]*Node) 
 				return err
 			}
 		case annotationEmbedded:
-			/*if err := nb.doEmbedded(); err != nil {
+			if err := nb.doEmbedded(); err != nil {
 				return err
-			}*/
+			}
 		case annotationRelation:
 			if err := nb.doRelation(included); err != nil {
 				return err
@@ -271,6 +271,31 @@ func (nb nodeBuilder) doPrimary() error {
 	assign(nb.fieldValue, idValue)
 	return nil
 }
+
+func (nb nodeBuilder) doEmbedded() error {
+//https://play.golang.org/p/ngsf87PtPE4
+	fmt.Println("DO EMBEDDED")
+	fmt.Println(fmt.Sprintf("nb.node:%v",nb.node))
+	fmt.Println(fmt.Sprintf("nb.node.Attributes:%v",nb.node.Attributes))
+	fmt.Println(fmt.Sprintf("nb.fieldValue.Elem():%v",nb.fieldValue))
+	fmt.Println(fmt.Sprintf("nb.fieldValue.Type():%v",nb.fieldType.Type))
+
+
+	bs, err := json.Marshal(nb.node.Attributes)
+	if err != nil {
+		return err
+	}
+
+	r := bytes.NewReader(bs)
+	payload := reflect.New(reflect.TypeOf(nb.fieldType.Type))
+	if err := json.NewDecoder(r).Decode(&payload); err != nil {
+		return err
+	}
+
+
+	return nil
+}
+
 
 func (nb nodeBuilder) doAttribute() error {
 	attributes := nb.node.Attributes
