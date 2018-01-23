@@ -273,29 +273,52 @@ func (nb nodeBuilder) doPrimary() error {
 }
 
 func (nb nodeBuilder) doEmbedded() error {
-//https://play.golang.org/p/ngsf87PtPE4
+	//https://play.golang.org/p/ngsf87PtPE4
 	fmt.Println("DO EMBEDDED")
-	fmt.Println(fmt.Sprintf("nb.node:%v",nb.node))
-	fmt.Println(fmt.Sprintf("nb.node.Attributes:%v",nb.node.Attributes))
-	fmt.Println(fmt.Sprintf("nb.fieldValue.Elem():%v",nb.fieldValue))
-	fmt.Println(fmt.Sprintf("nb.fieldValue.Type():%v",nb.fieldType.Type))
+	fmt.Println(fmt.Sprintf("nb.node:%v", nb.node))
+	fmt.Println(fmt.Sprintf("nb.node.Attributes:%v", nb.node.Attributes))
+	fmt.Println(fmt.Sprintf("nb.fieldValue.Elem():%v", nb.fieldValue.Elem()))
+	fmt.Println(fmt.Sprintf("nb.fieldValue.Type():%v", nb.fieldValue.Type()))
 
+	//buf := bytes.NewBuffer(nil)
+	/*if err := json.NewEncoder(buf).Encode(nb.node.Attributes); err != nil {
+		return nil
+	}*/
 
-	bs, err := json.Marshal(nb.node.Attributes)
-	if err != nil {
+	node := new(Node)
+	//embeddedNode := new(Node)
+	node.Attributes = nb.node.Attributes
+
+	/*json.NewEncoder(buf).Encode(embeddedNode)
+	json.NewDecoder(buf).Decode(node)*/
+
+	/*
+		http://jsonapi.org/format/#document-resource-object-relationships
+		http://jsonapi.org/format/#document-resource-object-linkage
+		relationship can have a data node set to null (e.g. to disassociate the relationship)
+		so unmarshal and set fieldValue only if data obj is not null
+	*/
+	if node.Attributes == nil {
+		return nil
+	}
+
+	m := reflect.New(nb.fieldValue.Type().Elem())
+	if err := unmarshalNode(
+		fullNode(node, nil),
+		m,
+		nil,
+	); err != nil {
 		return err
 	}
 
-	r := bytes.NewReader(bs)
-	payload := reflect.New(reflect.TypeOf(nb.fieldType.Type))
-	if err := json.NewDecoder(r).Decode(&payload); err != nil {
-		return err
-	}
+	nb.fieldValue.Set(m)
 
-
+	fmt.Println(fmt.Sprintf("nb.fieldValue:%v", nb.fieldValue))
+	fmt.Println(fmt.Sprintf("m:%v", m))
+	fmt.Println(fmt.Sprintf("m.Elem():%v", m.Elem()))
+	fmt.Println(fmt.Sprintf("m.Type():%v", m.Type()))
 	return nil
 }
-
 
 func (nb nodeBuilder) doAttribute() error {
 	attributes := nb.node.Attributes

@@ -558,13 +558,18 @@ func TestUnmarshalEmbedded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	/*if *d.Make != "Delorean" {
+	fmt.Println(fmt.Sprintf("d:%v", d))
+	fmt.Println(fmt.Sprintf("Make:%v", *d.Car.Make))
+	fmt.Println(fmt.Sprintf("Model:%v", *d.Car.Model))
+	fmt.Println(fmt.Sprintf("Year:%v", *d.Car.Year))
+
+	if *d.Make != "Delorean" {
 		t.Fatalf("expecting the make`%s`, got `%s`", "Delorean", d.Make)
 	}
 
 	if !d.FluxCapacitorInstalled {
 		t.Fatal("expecting a fluc capicitor to be installed but it wasn't")
-	}*/
+	}
 }
 
 func TestUnmarshalNestedRelationshipsEmbedded_withClientIDs(t *testing.T) {
