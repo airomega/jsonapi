@@ -26,6 +26,9 @@ var (
 	// ErrUnexpectedType is returned when marshalling an interface; the interface
 	// had to be a pointer or a slice; otherwise this error is returned.
 	ErrUnexpectedType = errors.New("models should be a struct pointer or slice of struct pointers")
+	// ErrEmbeddedPtrNotSet is returned when marshalling an interface with an embedded interface
+	// the embedded interface must not be null or this error is returned
+	ErrEmbeddedPtrNotSet = errors.New("embedded pointer is nil")
 )
 
 type fieldbuilder struct {
@@ -208,12 +211,15 @@ func MarshalOnePayloadEmbedded(w io.Writer, model interface{}) error {
 	return json.NewEncoder(w).Encode(payload)
 }
 
-func visitModelNode(model interface{}, included *map[string]*Node,
-	sideload bool) (*Node, error) {
-
+func visitModelNode(model interface{}, included *map[string]*Node, sideload bool) (*Node, error) {
 	node := new(Node)
+	v := reflect.ValueOf(model)
 	modelValue := reflect.ValueOf(model).Elem()
 	modelType := reflect.ValueOf(model).Type().Elem()
+
+	if v.IsNil() {
+		return nil, nil
+	}
 
 	for i := 0; i < modelValue.NumField(); i++ {
 		structField := modelValue.Type().Field(i)
@@ -325,7 +331,9 @@ func (fb fieldbuilder) doPrimary() error {
 		return ErrBadJSONAPIID
 	}
 
-	fb.node.Type = fb.args[1]
+	if fb.node.Type == "" {
+		fb.node.Type = fb.args[1]
+	}
 	return nil
 }
 
@@ -407,6 +415,10 @@ func (fb fieldbuilder) doEmbedded() error {
 		return err
 	}
 
+	if n == nil {
+		return ErrEmbeddedPtrNotSet
+	}
+
 	if n.ID != "" {
 		fb.node.ID = n.ID
 	}
@@ -414,6 +426,8 @@ func (fb fieldbuilder) doEmbedded() error {
 	for k, v := range n.Attributes {
 		fb.node.Attributes[k] = v
 	}
+
+	fb.node.Type = fb.args[1]
 	return nil
 }
 

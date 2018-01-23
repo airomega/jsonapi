@@ -553,15 +553,15 @@ func TestUnmarshalNestedRelationshipsSideloaded(t *testing.T) {
 }
 
 func TestUnmarshalEmbedded(t *testing.T) {
-	d := &Delorean{}
+	d := &Delorean{Car: &Car{}}
 	if err := UnmarshalPayload(testDeloreanPayload(), d); err != nil {
 		t.Fatal(err)
 	}
 
-	fmt.Println(fmt.Sprintf("d:%v", d))
-	fmt.Println(fmt.Sprintf("Make:%v", *d.Car.Make))
-	fmt.Println(fmt.Sprintf("Model:%v", *d.Car.Model))
-	fmt.Println(fmt.Sprintf("Year:%v", *d.Car.Year))
+	fmt.Println(fmt.Sprintf("d:%v", d.Car))
+	if *d.ID != "BTTF" {
+		t.Fatalf("expecting the make`%s`, got `%s`", "BTTF", d.Make)
+	}
 
 	if *d.Make != "Delorean" {
 		t.Fatalf("expecting the make`%s`, got `%s`", "Delorean", d.Make)
@@ -883,6 +883,7 @@ func testDeloreanPayload() io.Reader {
 	payload := &OnePayload{
 		Data: &Node{
 			Type: "delorean",
+			ID:   "BTTF",
 			Attributes: map[string]interface{}{
 				"make":           "Delorean",
 				"model":          "DMC-12",

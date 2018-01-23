@@ -119,3 +119,35 @@ type RelationshipMetable interface {
 	// JSONRelationshipMeta will be invoked for each relationship with the corresponding relation name (e.g. `comments`)
 	JSONAPIRelationshipMeta(relation string) *Meta
 }
+
+func (n *Node) merge(node *Node) {
+	if node.Type != "" {
+		n.Type = node.Type
+	}
+
+	if node.ID != "" {
+		n.ID = node.ID
+	}
+
+	if node.ClientID != "" {
+		n.ClientID = node.ClientID
+	}
+
+	if n.Attributes == nil && node.Attributes != nil {
+		n.Attributes = make(map[string]interface{})
+	}
+	for k, v := range node.Attributes {
+		n.Attributes[k] = v
+	}
+
+	if n.Relationships == nil && node.Relationships != nil {
+		n.Relationships = make(map[string]interface{})
+	}
+	for k, v := range node.Relationships {
+		n.Relationships[k] = v
+	}
+
+	if node.Links != nil {
+		n.Links = node.Links
+	}
+}

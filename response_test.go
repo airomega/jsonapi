@@ -11,7 +11,7 @@ import (
 
 func TestMarshalPayload(t *testing.T) {
 	book := &Book{ID: 1}
-	books := []*Book{book, {ID: 2}}
+	books := []*Book{book, &Book{ID: 2}}
 	var jsonData map[string]interface{}
 
 	// One
@@ -224,48 +224,6 @@ func TestMarshalIDPtr(t *testing.T) {
 	}
 }
 
-func TestMarshalEmbeddedIDPtr(t *testing.T) {
-	id, make, model, flux := "123e4567-e89b-12d3-a456-426655440000", "DeLorean", "DMC-12", true
-	delorean := &Delorean{
-		Car: &Car{
-			ID:    &id,
-			Make:  &make,
-			Model: &model,
-		},
-		FluxCapacitorInstalled: flux,
-	}
-
-	out := bytes.NewBuffer(nil)
-	if err := MarshalPayload(out, delorean); err != nil {
-		t.Fatal(err)
-	}
-
-	var jsonData map[string]interface{}
-	if err := json.Unmarshal(out.Bytes(), &jsonData); err != nil {
-		t.Fatal(err)
-	}
-	data := jsonData["data"].(map[string]interface{})
-	// attributes := data["attributes"].(map[string]interface{})
-
-	// Verify that the ID was sent
-	val, exists := data["id"]
-	if !exists {
-		t.Fatal("Was expecting the data.id member to exist")
-	}
-	if val != id {
-		t.Fatalf("Was expecting the data.id member to be `%s`, got `%s`", id, val)
-	}
-
-	attr, exists := data["attributes"].(map[string]interface{})
-	if !exists {
-		t.Fatal("Was expecting the data.id member to exist")
-	}
-
-	if m, exists := attr["make"]; !exists || make != m {
-		t.Fatalf("Was expecting the data.make member to be `%s`, got `%s`", make, m)
-	}
-}
-
 func TestMarshalOnePayload_omitIDString(t *testing.T) {
 	type Foo struct {
 		ID    string `jsonapi:"primary,foo"`
@@ -332,9 +290,9 @@ func TestOmitsEmptyAnnotation(t *testing.T) {
 		t.Fatalf("Was expecting the data.attributes.pages key/value to have been omitted - it was not and had a value of %v", val)
 	}
 
-	// Verify the implicitly omitted fields were omitted
+	// Verify the implicity omitted fields were omitted
 	if val, exists := attributes["PublishedAt"]; exists {
-		t.Fatalf("Was expecting the data.attributes.PublishedAt key/value to have been implicitly omitted - it was not and had a value of %v", val)
+		t.Fatalf("Was expecting the data.attributes.PublishedAt key/value to have been implicity omitted - it was not and had a value of %v", val)
 	}
 
 	// Verify the unset fields were not omitted
@@ -368,7 +326,7 @@ func TestHasPrimaryAnnotation(t *testing.T) {
 	}
 
 	if data.ID != "5" {
-		t.Fatalf("ID not transferred")
+		t.Fatalf("ID not transfered")
 	}
 }
 
@@ -665,11 +623,11 @@ func TestMarshalPayloadWithoutIncluded(t *testing.T) {
 		Title:    "Foo",
 		Body:     "Bar",
 		Comments: []*Comment{
-			{
+			&Comment{
 				ID:   20,
 				Body: "First",
 			},
-			{
+			&Comment{
 				ID:   21,
 				Body: "Hello World",
 			},
@@ -702,12 +660,12 @@ func TestMarshalPayload_many(t *testing.T) {
 			Title:     "Title 1",
 			CreatedAt: time.Now(),
 			Posts: []*Post{
-				{
+				&Post{
 					ID:    1,
 					Title: "Foo",
 					Body:  "Bar",
 				},
-				{
+				&Post{
 					ID:    2,
 					Title: "Fuubar",
 					Body:  "Bas",
@@ -724,12 +682,12 @@ func TestMarshalPayload_many(t *testing.T) {
 			Title:     "Title 2",
 			CreatedAt: time.Now(),
 			Posts: []*Post{
-				{
+				&Post{
 					ID:    3,
 					Title: "Foo",
 					Body:  "Bar",
 				},
-				{
+				&Post{
 					ID:    4,
 					Title: "Fuubar",
 					Body:  "Bas",
@@ -812,8 +770,8 @@ func TestMarshalManyWithoutIncluded(t *testing.T) {
 
 func TestMarshalMany_SliceOfInterfaceAndSliceOfStructsSameJSON(t *testing.T) {
 	structs := []*Book{
-		{ID: 1, Author: "aren55555", ISBN: "abc"},
-		{ID: 2, Author: "shwoodard", ISBN: "xyz"},
+		&Book{ID: 1, Author: "aren55555", ISBN: "abc"},
+		&Book{ID: 2, Author: "shwoodard", ISBN: "xyz"},
 	}
 	interfaces := []interface{}{}
 	for _, s := range structs {
@@ -859,22 +817,466 @@ func TestMarshal_InvalidIntefaceArgument(t *testing.T) {
 	}
 }
 
+func TestMergeNode(t *testing.T) {
+	parent := &Node{
+		Type:       "Good",
+		ID:         "99",
+		Attributes: map[string]interface{}{"fizz": "buzz"},
+	}
+
+	child := &Node{
+		Type:       "Better",
+		ClientID:   "1111",
+		Attributes: map[string]interface{}{"timbuk": 2},
+	}
+
+	expected := &Node{
+		Type:       "Better",
+		ID:         "99",
+		ClientID:   "1111",
+		Attributes: map[string]interface{}{"fizz": "buzz", "timbuk": 2},
+	}
+
+	parent.merge(child)
+
+	if !reflect.DeepEqual(expected, parent) {
+		t.Errorf("Got %+v Expected %+v", parent, expected)
+	}
+}
+
+// TestEmbeddedUnmarshalOrder tests the behavior of the marshaler/unmarshaler of embedded structs
+// when a struct has an embedded struct w/ competing attributes, the top-level attributes take precedence
+// it compares the behavior against the standard json package
+func TestEmbeddedUnmarshalOrder(t *testing.T) {
+	type Bar struct {
+		Name int `jsonapi:"attr,Name"`
+	}
+
+	type Foo struct {
+		Bar
+		ID   string `jsonapi:"primary,foos"`
+		Name string `jsonapi:"attr,Name"`
+	}
+
+	f := &Foo{
+		ID:   "1",
+		Name: "foo",
+		Bar: Bar{
+			Name: 5,
+		},
+	}
+
+	// marshal f (Foo) using jsonapi marshaler
+	jsonAPIData := bytes.NewBuffer(nil)
+	if err := MarshalPayload(jsonAPIData, f); err != nil {
+		t.Fatal(err)
+	}
+
+	// marshal f (Foo) using json marshaler
+	jsonData, err := json.Marshal(f)
+
+	// convert bytes to map[string]interface{} so that we can do a semantic JSON comparison
+	var jsonAPIVal, jsonVal map[string]interface{}
+	if err := json.Unmarshal(jsonAPIData.Bytes(), &jsonAPIVal); err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(jsonData, &jsonVal); err != nil {
+		t.Fatal(err)
+	}
+
+	// get to the jsonapi attribute map
+	jAttrMap := jsonAPIVal["data"].(map[string]interface{})["attributes"].(map[string]interface{})
+
+	// compare
+	if !reflect.DeepEqual(jAttrMap["Name"], jsonVal["Name"]) {
+		t.Errorf("Got\n%s\nExpected\n%s\n", jAttrMap["Name"], jsonVal["Name"])
+	}
+}
+
+// TestEmbeddedMarshalOrder tests the behavior of the marshaler/unmarshaler of embedded structs
+// when a struct has an embedded struct w/ competing attributes, the top-level attributes take precedence
+// it compares the behavior against the standard json package
+func TestEmbeddedMarshalOrder(t *testing.T) {
+	type Bar struct {
+		Name int `jsonapi:"attr,Name"`
+	}
+
+	type Foo struct {
+		Bar
+		ID   string `jsonapi:"primary,foos"`
+		Name string `jsonapi:"attr,Name"`
+	}
+
+	// get a jsonapi payload w/ Name attribute of an int type
+	payloadWithInt, err := json.Marshal(&OnePayload{
+		Data: &Node{
+			Type: "foos",
+			ID:   "1",
+			Attributes: map[string]interface{}{
+				"Name": 5,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// get a jsonapi payload w/ Name attribute of an string type
+	payloadWithString, err := json.Marshal(&OnePayload{
+		Data: &Node{
+			Type: "foos",
+			ID:   "1",
+			Attributes: map[string]interface{}{
+				"Name": "foo",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// unmarshal payloadWithInt to f (Foo) using jsonapi unmarshaler; expecting an error
+	f := &Foo{}
+	if err := UnmarshalPayload(bytes.NewReader(payloadWithInt), f); err == nil {
+		t.Errorf("expected an error: int value of 5 should attempt to map to Foo.Name (string) and error")
+	}
+
+	// unmarshal payloadWithString to f (Foo) using jsonapi unmarshaler; expecting no error
+	f = &Foo{}
+	if err := UnmarshalPayload(bytes.NewReader(payloadWithString), f); err != nil {
+		t.Error(err)
+	}
+	if f.Name != "foo" {
+		t.Errorf("Got\n%s\nExpected\n%s\n", "foo", f.Name)
+	}
+
+	// get a json payload w/ Name attribute of an int type
+	bWithInt, err := json.Marshal(map[string]interface{}{
+		"Name": 5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// get a json payload w/ Name attribute of an string type
+	bWithString, err := json.Marshal(map[string]interface{}{
+		"Name": "foo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// unmarshal bWithInt to f (Foo) using json unmarshaler; expecting an error
+	f = &Foo{}
+	if err := json.Unmarshal(bWithInt, f); err == nil {
+		t.Errorf("expected an error: int value of 5 should attempt to map to Foo.Name (string) and error")
+	}
+	// unmarshal bWithString to f (Foo) using json unmarshaler; expecting no error
+	f = &Foo{}
+	if err := json.Unmarshal(bWithString, f); err != nil {
+		t.Error(err)
+	}
+	if f.Name != "foo" {
+		t.Errorf("Got\n%s\nExpected\n%s\n", "foo", f.Name)
+	}
+}
+
+func TestMarshalUnmarshalCompositeStruct(t *testing.T) {
+	type Thing struct {
+		ID   int    `jsonapi:"primary,things"`
+		Fizz string `jsonapi:"attr,fizz,omitempty"`
+		Buzz int    `jsonapi:"attr,buzz,omitempty"`
+	}
+
+	type Model struct {
+		*Thing `jsonapi:"embedded,models"`
+		Foo    string `jsonapi:"attr,foo"`
+		Bar    string `jsonapi:"attr,bar"`
+		Bat    string `jsonapi:"attr,bat"`
+	}
+
+	type test struct {
+		name          string
+		payload       *OnePayload
+		dst, expected interface{}
+	}
+
+	scenarios := []test{}
+
+	scenarios = append(scenarios, test{
+		name: "Model embeds Thing, models have no annotation overlaps",
+		dst:  &Model{},
+		payload: &OnePayload{
+			Data: &Node{
+				Type: "models",
+				ID:   "1",
+				Attributes: map[string]interface{}{
+					"bar":  "barry",
+					"bat":  "batty",
+					"buzz": 99,
+					"fizz": "fizzy",
+					"foo":  "fooey",
+				},
+			},
+		},
+		expected: &Model{
+			Foo: "fooey",
+			Bar: "barry",
+			Bat: "batty",
+			Thing: &Thing{
+				ID:   1,
+				Fizz: "fizzy",
+				Buzz: 99,
+			},
+		},
+	})
+
+	{
+		type Model struct {
+			*Thing `jsonapi:"embedded,models"`
+			Foo    string `jsonapi:"attr,foo"`
+			Bar    string `jsonapi:"attr,bar"`
+			Bat    string `jsonapi:"attr,bat"`
+			Buzz   int    `jsonapi:"attr,buzz"` // overrides Thing.Buzz
+		}
+
+		scenarios = append(scenarios, test{
+			name: "Model embeds Thing, overlap Buzz attribute",
+			dst:  &Model{},
+			payload: &OnePayload{
+				Data: &Node{
+					Type: "models",
+					ID:   "1",
+					Attributes: map[string]interface{}{
+						"bar":  "barry",
+						"bat":  "batty",
+						"buzz": 99,
+						"fizz": "fizzy",
+						"foo":  "fooey",
+					},
+				},
+			},
+			expected: &Model{
+				Foo:  "fooey",
+				Bar:  "barry",
+				Bat:  "batty",
+				Buzz: 99,
+				Thing: &Thing{
+					ID:   1,
+					Fizz: "fizzy",
+				},
+			},
+		})
+	}
+	{
+		type Model struct {
+			*Thing `jsonapi:"embedded,models"`
+			Foo    string `jsonapi:"attr,foo"`
+			Bar    string `jsonapi:"attr,bar"`
+			Bat    string `jsonapi:"attr,bat"`
+		}
+
+		scenarios = append(scenarios, test{
+			name: "Model embeds pointer of Thing; Thing is initialized in advance",
+			dst:  &Model{Thing: &Thing{}},
+			payload: &OnePayload{
+				Data: &Node{
+					Type: "models",
+					ID:   "1",
+					Attributes: map[string]interface{}{
+						"bar":  "barry",
+						"bat":  "batty",
+						"foo":  "fooey",
+						"buzz": 99,
+						"fizz": "fizzy",
+					},
+				},
+			},
+			expected: &Model{
+				Thing: &Thing{
+					ID:   1,
+					Fizz: "fizzy",
+					Buzz: 99,
+				},
+				Foo: "fooey",
+				Bar: "barry",
+				Bat: "batty",
+			},
+		})
+	}
+	{
+		type Model struct {
+			*Thing `jsonapi:"embedded,models"`
+			Foo    string `jsonapi:"attr,foo"`
+			Bar    string `jsonapi:"attr,bar"`
+			Bat    string `jsonapi:"attr,bat"`
+		}
+
+		scenarios = append(scenarios, test{
+			name: "Model embeds pointer of Thing; Thing is initialized w/ Unmarshal",
+			dst:  &Model{},
+			payload: &OnePayload{
+				Data: &Node{
+					Type: "models",
+					ID:   "1",
+					Attributes: map[string]interface{}{
+						"bar":  "barry",
+						"bat":  "batty",
+						"foo":  "fooey",
+						"buzz": 99,
+						"fizz": "fizzy",
+					},
+				},
+			},
+			expected: &Model{
+				Thing: &Thing{
+					ID:   1,
+					Fizz: "fizzy",
+					Buzz: 99,
+				},
+				Foo: "fooey",
+				Bar: "barry",
+				Bat: "batty",
+			},
+		})
+	}
+	{
+		type Model struct {
+			*Thing `jsonapi:"embedded,models"`
+			Foo    string `jsonapi:"attr,foo,omitempty"`
+			Bar    string `jsonapi:"attr,bar,omitempty"`
+			Bat    string `jsonapi:"attr,bat,omitempty"`
+		}
+
+		scenarios = append(scenarios, test{
+			name: "Model embeds pointer of Thing; jsonapi defines ID, Thing ID is set",
+			dst:  &Model{},
+			payload: &OnePayload{
+				Data: &Node{
+					Type: "models",
+					ID:   "1",
+					Attributes: map[string]interface{}{
+						"bar": "barry",
+						"bat": "batty",
+						"foo": "fooey",
+					},
+				},
+			},
+			expected: &Model{
+				Thing: &Thing{
+					ID: 1,
+				},
+				Foo: "fooey",
+				Bar: "barry",
+				Bat: "batty",
+			},
+		})
+	}
+	for _, scenario := range scenarios {
+		t.Logf("running scenario: %s\n", scenario.name)
+
+		// get the expected model and marshal to jsonapi
+		buf := bytes.NewBuffer(nil)
+		if err := MarshalPayload(buf, scenario.expected); err != nil {
+			t.Fatal(err)
+		}
+
+		// get the node model representation and marshal to jsonapi
+		payload, err := json.Marshal(scenario.payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// assert that we're starting w/ the same payload
+		isJSONEqual, err := isJSONEqual(payload, buf.Bytes())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !isJSONEqual {
+			t.Errorf("Got\n%s\nExpected\n%s\n", buf.Bytes(), payload)
+		}
+
+		// run jsonapi unmarshal
+		if err := UnmarshalPayload(bytes.NewReader(payload), scenario.dst); err != nil {
+			t.Fatal(err)
+		}
+
+		// assert decoded and expected models are equal
+		if scenario.expected == scenario.dst {
+			t.Errorf("Got\n%#v\nExpected\n%#v\n", scenario.dst, scenario.expected)
+		}
+	}
+}
+
+func TestMarshalUnmarshalCompositeStruct_Errors(t *testing.T) {
+	type Thing struct {
+		ID   string `jsonapi:"primary,things"`
+		Fizz string `jsonapi:"attr,fizz,omitempty"`
+		Buzz int    `jsonapi:"attr,buzz,omitempty"`
+	}
+
+	type Model struct {
+		*Thing `jsonapi:"embedded,models"`
+		Foo    string `jsonapi:"attr,foo"`
+		Bar    string `jsonapi:"attr,bar"`
+		Bat    string `jsonapi:"attr,bat"`
+	}
+
+	type test struct {
+		name     string
+		payload  *OnePayload
+		dst      *Model
+		expected error
+	}
+
+	scenarios := []test{}
+
+	{
+
+		scenarios = append(scenarios, test{
+			name: "Model embeds pointer of Thing; *Thing is nil",
+			dst:  &Model{},
+			payload: &OnePayload{
+				Data: &Node{
+					Type: "models",
+					Attributes: map[string]interface{}{
+						"bar": "barry",
+						"bat": "batty",
+						"foo": "fooey",
+					},
+				},
+			},
+			expected: ErrEmbeddedPtrNotSet,
+		})
+	}
+
+	for _, scenario := range scenarios {
+		t.Logf("running scenario: %s\n", scenario.name)
+
+		// get the expected model and marshal to jsonapi
+		buf := bytes.NewBuffer(nil)
+		if err := MarshalPayload(buf, scenario.dst); err != scenario.expected {
+			t.Errorf("Dst\n%#v\nGot\n%#v\nExpected\n%#v\n", scenario.dst.ID, err, scenario.expected)
+		}
+	}
+}
+
 func testBlog() *Blog {
 	return &Blog{
 		ID:        5,
 		Title:     "Title 1",
 		CreatedAt: time.Now(),
 		Posts: []*Post{
-			{
+			&Post{
 				ID:    1,
 				Title: "Foo",
 				Body:  "Bar",
 				Comments: []*Comment{
-					{
+					&Comment{
 						ID:   1,
 						Body: "foo",
 					},
-					{
+					&Comment{
 						ID:   2,
 						Body: "bar",
 					},
@@ -884,16 +1286,16 @@ func testBlog() *Blog {
 					Body: "foo",
 				},
 			},
-			{
+			&Post{
 				ID:    2,
 				Title: "Fuubar",
 				Body:  "Bas",
 				Comments: []*Comment{
-					{
+					&Comment{
 						ID:   1,
 						Body: "foo",
 					},
-					{
+					&Comment{
 						ID:   3,
 						Body: "bas",
 					},
@@ -909,11 +1311,11 @@ func testBlog() *Blog {
 			Title: "Foo",
 			Body:  "Bar",
 			Comments: []*Comment{
-				{
+				&Comment{
 					ID:   1,
 					Body: "foo",
 				},
-				{
+				&Comment{
 					ID:   2,
 					Body: "bar",
 				},
@@ -924,4 +1326,18 @@ func testBlog() *Blog {
 			},
 		},
 	}
+}
+
+func isJSONEqual(b1, b2 []byte) (bool, error) {
+	var i1, i2 interface{}
+	var result bool
+	var err error
+	if err = json.Unmarshal(b1, &i1); err != nil {
+		return result, err
+	}
+	if err = json.Unmarshal(b2, &i2); err != nil {
+		return result, err
+	}
+	result = reflect.DeepEqual(i1, i2)
+	return result, err
 }

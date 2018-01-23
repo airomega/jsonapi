@@ -205,6 +205,8 @@ func (nb nodeBuilder) doPrimary() error {
 
 	// ID will have to be transmitted as astring per the JSON API spec
 	v := reflect.ValueOf(nb.node.ID)
+	fmt.Println("nb.node.ID", v)
+	fmt.Println("nb.node.ID", reflect.TypeOf(nb.node.ID))
 
 	// Deal with PTRS
 	var kind reflect.Kind
@@ -213,6 +215,7 @@ func (nb nodeBuilder) doPrimary() error {
 	} else {
 		kind = nb.fieldType.Type.Kind()
 	}
+	fmt.Println("kind", kind)
 
 	// Handle String case
 	if kind == reflect.String {
@@ -310,13 +313,13 @@ func (nb nodeBuilder) doEmbedded() error {
 	); err != nil {
 		return err
 	}
-
-	nb.fieldValue.Set(m)
-
 	fmt.Println(fmt.Sprintf("nb.fieldValue:%v", nb.fieldValue))
 	fmt.Println(fmt.Sprintf("m:%v", m))
 	fmt.Println(fmt.Sprintf("m.Elem():%v", m.Elem()))
 	fmt.Println(fmt.Sprintf("m.Type():%v", m.Type()))
+	nb.fieldValue.Set(m)
+	nb.doPrimary()
+
 	return nil
 }
 
