@@ -3,6 +3,7 @@ package jsonapi
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"sort"
 	"testing"
@@ -1119,31 +1120,6 @@ func TestMarshalUnmarshalCompositeStruct(t *testing.T) {
 			},
 		})
 	}
-	{
-		scenarios = append(scenarios, test{
-			name: "Model embeds pointer of Thing; jsonapi defines ID, Thing ID is set",
-			dst:  &Model{Thing: &Thing{}},
-			payload: &OnePayload{
-				Data: &Node{
-					Type: "models",
-					ID:   "1",
-					Attributes: map[string]interface{}{
-						"bar": "barry",
-						"bat": "batty",
-						"foo": "fooey",
-					},
-				},
-			},
-			expected: &Model{
-				Thing: &Thing{
-					ID: 1,
-				},
-				Foo: "fooey",
-				Bar: "barry",
-				Bat: "batty",
-			},
-		})
-	}
 	for _, scenario := range scenarios {
 		t.Logf("running scenario: %s\n", scenario.name)
 
@@ -1182,6 +1158,82 @@ func TestMarshalUnmarshalCompositeStruct(t *testing.T) {
 			t.Errorf("Got\n%#v\nExpected\n%#v\n", scenario.dst, scenario.expected)
 		}
 	}
+}
+
+func TestExtendsWithRelation_MixedData(t *testing.T) {
+	type Thing struct {
+		ID   int    `jsonapi:"primary,things"`
+		Fizz string `jsonapi:"attr,fizz,omitempty"`
+		Buzz int    `jsonapi:"attr,buzz,omitempty"`
+	}
+
+	type Relation struct {
+		ID int `jsonapi:"primary,relations"`
+	}
+
+	type Model struct {
+		*Thing `jsonapi:"extends,models"`
+		Foo    string      `jsonapi:"attr,foo"`
+		Bar    string      `jsonapi:"attr,bar"`
+		Bat    string      `jsonapi:"attr,bat"`
+		Buzz   int         `jsonapi:"attr,buzz,omitempty"` // overrides Thing.Buzz
+		Rels   []*Relation `jsonapi:"relation,relations,omitempty"`
+	}
+
+	model := &Model{
+		Thing: &Thing{
+			ID:   1,
+			Fizz: "fizzy",
+			Buzz: 99,
+		},
+		Foo:  "fooey",
+		Bar:  "barry",
+		Bat:  "batty",
+		Rels: []*Relation{{ID: 1}, {ID: 2}},
+	}
+
+	out := bytes.NewBuffer(nil)
+	if err := MarshalPayload(out, model); err != nil {
+		t.Fatal(err)
+	}
+
+	var jsonData map[string]interface{}
+	if err := json.Unmarshal(out.Bytes(), &jsonData); err != nil {
+		t.Fatal(err)
+	}
+	payload := jsonData["data"].(map[string]interface{})
+
+	// Verify relationship was set
+	if _, exists := payload["relationships"]; !exists {
+		t.Fatal("Was expecting the data.relationships key/value to have NOT been empty")
+	}
+
+	relationships := payload["relationships"].(map[string]interface{})
+
+	// Verify the relationship was not omitted, and is not null
+	val, exists := relationships["relations"]
+	if !exists {
+		t.Fatal("Was expecting the data.relationships.relations key/value to have NOT been omitted")
+	}
+
+	relData := val.(map[string]interface{})
+
+	rels, exists := relData["data"]
+	if !exists {
+		t.Fatal("Was expecting the data.relationships.relations.data key/value to have NOT been omitted")
+	}
+
+	l := len(rels.([]interface{}))
+	if l != 2 {
+		t.Fatal("Was expecting 2 relations but there were %d", l)
+	}
+	fmt.Println(string(out.Bytes()))
+
+	m := Model{Thing: new(Thing), Rels: make([]*Relation, 0)}
+	if err := UnmarshalPayload(out, m); err != nil {
+		t.Fatal(err)
+	}
+
 }
 
 func TestMarshalUnmarshalCompositeStruct_Errors(t *testing.T) {
