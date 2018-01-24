@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"strconv"
 	"strings"
-	"time"
 )
 
 var (
@@ -213,64 +211,47 @@ func MarshalOnePayloadEmbedded(w io.Writer, model interface{}) error {
 
 func visitModelNode(model interface{}, included *map[string]*Node, sideload bool) (*Node, error) {
 	node := new(Node)
-	v := reflect.ValueOf(model)
 	modelValue := reflect.ValueOf(model).Elem()
 	modelType := reflect.ValueOf(model).Type().Elem()
 
-	if v.IsNil() {
-		return nil, nil
+	if node.Attributes == nil {
+		node.Attributes = make(map[string]interface{})
+	}
+
+	if node.Relationships == nil {
+		node.Relationships = make(map[string]interface{})
 	}
 
 	for i := 0; i < modelValue.NumField(); i++ {
+
 		structField := modelValue.Type().Field(i)
 		tag := structField.Tag.Get(annotationJSONAPI)
 		if tag == "" {
 			continue
 		}
 
-		fb := fieldbuilder{
-			model:      model,
-			node:       node,
-			included:   included,
-			sideload:   sideload,
-			args:       strings.Split(tag, annotationSeperator),
-			fieldValue: modelValue.Field(i),
-			fieldType:  modelType.Field(i),
+		f, err := getField(
+			strings.Split(tag, annotationSeperator),
+			modelValue.Field(i),
+			modelType.Field(i),
+			included,
+			sideload,
+		)
+		if err != nil {
+			return nil, err
 		}
 
-		if len(fb.args) < 1 {
-			return nil, ErrBadJSONAPIStructTag
+		val, err := f.marshal()
+		if err != nil {
+			return nil, err
 		}
 
-		annotation := fb.args[0]
-
-		if (annotation == annotationClientID && len(fb.args) != 1) ||
-			(annotation != annotationClientID && len(fb.args) < 2) {
-			return nil, ErrBadJSONAPIStructTag
-		}
-
-		switch annotation {
-		case annotationPrimary:
-			if err := fb.doPrimary(); err != nil {
-				return fb.node, err
+		if attrMap, ok := val.(map[string]interface{}); ok {
+			for k, v := range attrMap {
+				node.Attributes[k] = v
 			}
-		case annotationClientID:
-			clientID := fb.fieldValue.String()
-			if clientID != "" {
-				fb.node.ClientID = clientID
-			}
-		case annotationExtends:
-			if err := fb.doExtends(); err != nil {
-				return nil, err
-			}
-		case annotationAttribute:
-			fb.doAttribute()
-		case annotationRelation:
-			if err := fb.doRelation(); err != nil {
-				return nil, err
-			}
-		default:
-			return nil, ErrBadJSONAPIStructTag
+		} else {
+			node.Attributes[f.getFieldName()] = val
 		}
 	}
 
@@ -287,280 +268,6 @@ func visitModelNode(model interface{}, included *map[string]*Node, sideload bool
 	}
 
 	return node, nil
-}
-
-func (fb fieldbuilder) doPrimary() error {
-	v := fb.fieldValue
-
-	// Deal with PTRS
-	var kind reflect.Kind
-	if fb.fieldValue.Kind() == reflect.Ptr {
-		kind = fb.fieldType.Type.Elem().Kind()
-		v = reflect.Indirect(fb.fieldValue)
-	} else {
-		kind = fb.fieldType.Type.Kind()
-	}
-
-	// Handle allowed types
-	switch kind {
-	case reflect.String:
-		fb.node.ID = v.Interface().(string)
-	case reflect.Int:
-		fb.node.ID = strconv.FormatInt(int64(v.Interface().(int)), 10)
-	case reflect.Int8:
-		fb.node.ID = strconv.FormatInt(int64(v.Interface().(int8)), 10)
-	case reflect.Int16:
-		fb.node.ID = strconv.FormatInt(int64(v.Interface().(int16)), 10)
-	case reflect.Int32:
-		fb.node.ID = strconv.FormatInt(int64(v.Interface().(int32)), 10)
-	case reflect.Int64:
-		fb.node.ID = strconv.FormatInt(v.Interface().(int64), 10)
-	case reflect.Uint:
-		fb.node.ID = strconv.FormatUint(uint64(v.Interface().(uint)), 10)
-	case reflect.Uint8:
-		fb.node.ID = strconv.FormatUint(uint64(v.Interface().(uint8)), 10)
-	case reflect.Uint16:
-		fb.node.ID = strconv.FormatUint(uint64(v.Interface().(uint16)), 10)
-	case reflect.Uint32:
-		fb.node.ID = strconv.FormatUint(uint64(v.Interface().(uint32)), 10)
-	case reflect.Uint64:
-		fb.node.ID = strconv.FormatUint(v.Interface().(uint64), 10)
-	default:
-		// We had a JSON float (numeric), but our field was not one of the
-		// allowed numeric types
-		return ErrBadJSONAPIID
-	}
-
-	if fb.node.Type == "" {
-		fb.node.Type = fb.args[1]
-	}
-	return nil
-}
-
-func (fb fieldbuilder) doAttribute() {
-	var omitEmpty, iso8601 bool
-
-	if len(fb.args) > 2 {
-		for _, arg := range fb.args[2:] {
-			switch arg {
-			case annotationOmitEmpty:
-				omitEmpty = true
-			case annotationISO8601:
-				iso8601 = true
-			}
-		}
-	}
-
-	if fb.node.Attributes == nil {
-		fb.node.Attributes = make(map[string]interface{})
-	}
-
-	if fb.fieldValue.Type() == reflect.TypeOf(time.Time{}) {
-		t := fb.fieldValue.Interface().(time.Time)
-
-		if t.IsZero() {
-			return
-		}
-
-		if iso8601 {
-			fb.node.Attributes[fb.args[1]] = t.UTC().Format(iso8601TimeFormat)
-		} else {
-			fb.node.Attributes[fb.args[1]] = t.Unix()
-		}
-	} else if fb.fieldValue.Type() == reflect.TypeOf(new(time.Time)) {
-		// A time pointer may be nil
-		if fb.fieldValue.IsNil() {
-			if omitEmpty {
-				return
-			}
-
-			fb.node.Attributes[fb.args[1]] = nil
-		} else {
-			tm := fb.fieldValue.Interface().(*time.Time)
-
-			if tm.IsZero() && omitEmpty {
-				return
-			}
-
-			if iso8601 {
-				fb.node.Attributes[fb.args[1]] = tm.UTC().Format(iso8601TimeFormat)
-			} else {
-				fb.node.Attributes[fb.args[1]] = tm.Unix()
-			}
-		}
-	} else {
-		emptyValue := reflect.Zero(fb.fieldValue.Type())
-
-		// See if we need to omit this field
-		if omitEmpty && fb.fieldValue.Interface() == emptyValue.Interface() {
-			return
-		}
-
-		strAttr, ok := fb.fieldValue.Interface().(string)
-		if ok {
-			fb.node.Attributes[fb.args[1]] = strAttr
-		} else {
-			fb.node.Attributes[fb.args[1]] = fb.fieldValue.Interface()
-		}
-	}
-}
-
-func (fb fieldbuilder) doExtends() error {
-	if fb.node.Attributes == nil {
-		fb.node.Attributes = make(map[string]interface{})
-	}
-
-	n, err := visitModelNode(fb.fieldValue.Interface(), fb.included, fb.sideload)
-	if err != nil {
-		return err
-	}
-
-	if n == nil {
-		return ErrEmbeddedPtrNotSet
-	}
-
-	if n.ID != "" {
-		fb.node.ID = n.ID
-	}
-
-	for k, v := range n.Attributes {
-		fb.node.Attributes[k] = v
-	}
-
-	fb.node.Type = fb.args[1]
-	return nil
-}
-
-func (fb fieldbuilder) doRelation() error {
-	var omitEmpty bool
-
-	//add support for 'omitempty' struct tag for marshaling as absent
-	if len(fb.args) > 2 {
-		omitEmpty = fb.args[2] == annotationOmitEmpty
-	}
-
-	isSlice := fb.fieldValue.Type().Kind() == reflect.Slice
-	if omitEmpty &&
-		(isSlice && fb.fieldValue.Len() < 1 ||
-			(!isSlice && fb.fieldValue.IsNil())) {
-		return nil
-	}
-
-	if fb.node.Relationships == nil {
-		fb.node.Relationships = make(map[string]interface{})
-	}
-
-	var relLinks *Links
-	if linkableModel, ok := fb.model.(RelationshipLinkable); ok {
-		relLinks = linkableModel.JSONAPIRelationshipLinks(fb.args[1])
-	}
-
-	var relMeta *Meta
-	if metableModel, ok := fb.model.(RelationshipMetable); ok {
-		relMeta = metableModel.JSONAPIRelationshipMeta(fb.args[1])
-	}
-
-	if isSlice {
-		// to-many relationship
-		relationship, err := visitModelNodeRelationships(
-			fb.fieldValue,
-			fb.included,
-			fb.sideload,
-		)
-		if err != nil {
-			return err
-		}
-		relationship.Links = relLinks
-		relationship.Meta = relMeta
-
-		if fb.sideload {
-			shallowNodes := []*Node{}
-			for _, n := range relationship.Data {
-				appendIncluded(fb.included, n)
-				shallowNodes = append(shallowNodes, toShallowNode(n))
-			}
-
-			fb.node.Relationships[fb.args[1]] = &RelationshipManyNode{
-				Data:  shallowNodes,
-				Links: relationship.Links,
-				Meta:  relationship.Meta,
-			}
-		} else {
-			fb.node.Relationships[fb.args[1]] = relationship
-		}
-	} else {
-		// to-one relationships
-
-		// Handle null relationship case
-		if fb.fieldValue.IsNil() {
-			fb.node.Relationships[fb.args[1]] = &RelationshipOneNode{Data: nil}
-			return nil
-		}
-
-		relationship, err := visitModelNode(
-			fb.fieldValue.Interface(),
-			fb.included,
-			fb.sideload,
-		)
-		if err != nil {
-			return err
-		}
-
-		if fb.sideload {
-			appendIncluded(fb.included, relationship)
-			fb.node.Relationships[fb.args[1]] = &RelationshipOneNode{
-				Data:  toShallowNode(relationship),
-				Links: relLinks,
-				Meta:  relMeta,
-			}
-		} else {
-			fb.node.Relationships[fb.args[1]] = &RelationshipOneNode{
-				Data:  relationship,
-				Links: relLinks,
-				Meta:  relMeta,
-			}
-		}
-	}
-	return nil
-}
-
-func toShallowNode(node *Node) *Node {
-	return &Node{
-		ID:   node.ID,
-		Type: node.Type,
-	}
-}
-
-func visitModelNodeRelationships(models reflect.Value, included *map[string]*Node,
-	sideload bool) (*RelationshipManyNode, error) {
-	nodes := []*Node{}
-
-	for i := 0; i < models.Len(); i++ {
-		n := models.Index(i).Interface()
-
-		node, err := visitModelNode(n, included, sideload)
-		if err != nil {
-			return nil, err
-		}
-
-		nodes = append(nodes, node)
-	}
-
-	return &RelationshipManyNode{Data: nodes}, nil
-}
-
-func appendIncluded(m *map[string]*Node, nodes ...*Node) {
-	included := *m
-
-	for _, n := range nodes {
-		k := fmt.Sprintf("%s,%s", n.Type, n.ID)
-
-		if _, hasNode := included[k]; hasNode {
-			continue
-		}
-
-		included[k] = n
-	}
 }
 
 func nodeMapValues(m *map[string]*Node) []*Node {

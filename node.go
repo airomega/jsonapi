@@ -33,13 +33,15 @@ func (p *ManyPayload) clearIncluded() {
 	p.Included = []*Node{}
 }
 
+type relationships map[string]interface{}
+
 // Node is used to represent a generic JSON API Resource
 type Node struct {
 	Type          string                 `json:"type"`
 	ID            string                 `json:"id,omitempty"`
 	ClientID      string                 `json:"client-id,omitempty"`
 	Attributes    map[string]interface{} `json:"attributes,omitempty"`
-	Relationships map[string]interface{} `json:"relationships,omitempty"`
+	Relationships relationships          `json:"relationships,omitempty"`
 	Links         *Links                 `json:"links,omitempty"`
 	Meta          *Meta                  `json:"meta,omitempty"`
 }
