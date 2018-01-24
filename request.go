@@ -173,8 +173,8 @@ func unmarshalNode(node *Node, model reflect.Value, included *map[string]*Node) 
 			if err := nb.doAttribute(); err != nil {
 				return err
 			}
-		case annotationEmbedded:
-			if err := nb.doEmbedded(); err != nil {
+		case annotationExtends:
+			if err := nb.doExtends(); err != nil {
 				return err
 			}
 		case annotationRelation:
@@ -205,8 +205,6 @@ func (nb nodeBuilder) doPrimary() error {
 
 	// ID will have to be transmitted as astring per the JSON API spec
 	v := reflect.ValueOf(nb.node.ID)
-	fmt.Println("nb.node.ID", v)
-	fmt.Println("nb.node.ID", reflect.TypeOf(nb.node.ID))
 
 	// Deal with PTRS
 	var kind reflect.Kind
@@ -215,7 +213,6 @@ func (nb nodeBuilder) doPrimary() error {
 	} else {
 		kind = nb.fieldType.Type.Kind()
 	}
-	fmt.Println("kind", kind)
 
 	// Handle String case
 	if kind == reflect.String {
@@ -275,51 +272,50 @@ func (nb nodeBuilder) doPrimary() error {
 	return nil
 }
 
-func (nb nodeBuilder) doEmbedded() error {
-	//https://play.golang.org/p/ngsf87PtPE4
-	fmt.Println("DO EMBEDDED")
-	fmt.Println(fmt.Sprintf("nb.node:%v", nb.node))
-	fmt.Println(fmt.Sprintf("nb.node.Attributes:%v", nb.node.Attributes))
-	fmt.Println(fmt.Sprintf("nb.fieldValue.Elem():%v", nb.fieldValue.Elem()))
-	fmt.Println(fmt.Sprintf("nb.fieldValue.Type():%v", nb.fieldValue.Type()))
-
-	//buf := bytes.NewBuffer(nil)
-	/*if err := json.NewEncoder(buf).Encode(nb.node.Attributes); err != nil {
-		return nil
-	}*/
-
-	node := new(Node)
-	//embeddedNode := new(Node)
-	node.Attributes = nb.node.Attributes
-
-	/*json.NewEncoder(buf).Encode(embeddedNode)
-	json.NewDecoder(buf).Decode(node)*/
-
-	/*
-		http://jsonapi.org/format/#document-resource-object-relationships
-		http://jsonapi.org/format/#document-resource-object-linkage
-		relationship can have a data node set to null (e.g. to disassociate the relationship)
-		so unmarshal and set fieldValue only if data obj is not null
-	*/
-	if node.Attributes == nil {
-		return nil
-	}
-
+func (nb nodeBuilder) doExtends() error {
 	m := reflect.New(nb.fieldValue.Type().Elem())
-	if err := unmarshalNode(
-		fullNode(node, nil),
-		m,
-		nil,
-	); err != nil {
-		return err
-	}
-	fmt.Println(fmt.Sprintf("nb.fieldValue:%v", nb.fieldValue))
-	fmt.Println(fmt.Sprintf("m:%v", m))
-	fmt.Println(fmt.Sprintf("m.Elem():%v", m.Elem()))
-	fmt.Println(fmt.Sprintf("m.Type():%v", m.Type()))
-	nb.fieldValue.Set(m)
-	nb.doPrimary()
+	embedded := m.Interface()
 
+	newNodeAttr := make(map[string]interface{})
+	for k, v := range nb.node.Attributes {
+		newNodeAttr[k] = v
+	}
+
+	var val reflect.Value
+	if nb.fieldValue.Kind() == reflect.Ptr {
+		val = reflect.Indirect(nb.fieldValue)
+	} else {
+		val = nb.fieldValue.Elem()
+	}
+
+	if !val.IsValid() {
+		return ErrInvalidType
+	}
+
+	for i := 0; i < reflect.TypeOf(val).NumField(); i++ {
+		typeField := val.Type().Field(i)
+		tag := typeField.Tag.Get("jsonapi")
+
+		if tag == "" {
+			continue
+		}
+
+		args := strings.Split(tag, ",")
+		if args[0] == annotationPrimary {
+			newNodeAttr[typeField.Name] = nb.node.ID
+		}
+	}
+
+	in := bytes.NewBuffer(nil)
+	if err := json.NewEncoder(in).Encode(newNodeAttr); err != nil {
+		return nil
+	}
+
+	if err := json.NewDecoder(in).Decode(embedded); err != nil {
+		return nil
+	}
+
+	nb.fieldValue.Set(reflect.ValueOf(embedded))
 	return nil
 }
 

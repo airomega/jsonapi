@@ -989,10 +989,11 @@ func TestMarshalUnmarshalCompositeStruct(t *testing.T) {
 	}
 
 	type Model struct {
-		*Thing `jsonapi:"embedded,models"`
+		*Thing `jsonapi:"extends,models"`
 		Foo    string `jsonapi:"attr,foo"`
 		Bar    string `jsonapi:"attr,bar"`
 		Bat    string `jsonapi:"attr,bat"`
+		Buzz   int    `jsonapi:"attr,buzz,omitempty"` // overrides Thing.Buzz
 	}
 
 	type test struct {
@@ -1005,7 +1006,7 @@ func TestMarshalUnmarshalCompositeStruct(t *testing.T) {
 
 	scenarios = append(scenarios, test{
 		name: "Model embeds Thing, models have no annotation overlaps",
-		dst:  &Model{},
+		dst:  &Model{Thing: &Thing{}},
 		payload: &OnePayload{
 			Data: &Node{
 				Type: "models",
@@ -1032,17 +1033,9 @@ func TestMarshalUnmarshalCompositeStruct(t *testing.T) {
 	})
 
 	{
-		type Model struct {
-			*Thing `jsonapi:"embedded,models"`
-			Foo    string `jsonapi:"attr,foo"`
-			Bar    string `jsonapi:"attr,bar"`
-			Bat    string `jsonapi:"attr,bat"`
-			Buzz   int    `jsonapi:"attr,buzz"` // overrides Thing.Buzz
-		}
-
 		scenarios = append(scenarios, test{
 			name: "Model embeds Thing, overlap Buzz attribute",
-			dst:  &Model{},
+			dst:  &Model{Thing: &Thing{}},
 			payload: &OnePayload{
 				Data: &Node{
 					Type: "models",
@@ -1069,13 +1062,6 @@ func TestMarshalUnmarshalCompositeStruct(t *testing.T) {
 		})
 	}
 	{
-		type Model struct {
-			*Thing `jsonapi:"embedded,models"`
-			Foo    string `jsonapi:"attr,foo"`
-			Bar    string `jsonapi:"attr,bar"`
-			Bat    string `jsonapi:"attr,bat"`
-		}
-
 		scenarios = append(scenarios, test{
 			name: "Model embeds pointer of Thing; Thing is initialized in advance",
 			dst:  &Model{Thing: &Thing{}},
@@ -1105,16 +1091,9 @@ func TestMarshalUnmarshalCompositeStruct(t *testing.T) {
 		})
 	}
 	{
-		type Model struct {
-			*Thing `jsonapi:"embedded,models"`
-			Foo    string `jsonapi:"attr,foo"`
-			Bar    string `jsonapi:"attr,bar"`
-			Bat    string `jsonapi:"attr,bat"`
-		}
-
 		scenarios = append(scenarios, test{
 			name: "Model embeds pointer of Thing; Thing is initialized w/ Unmarshal",
-			dst:  &Model{},
+			dst:  &Model{Thing: &Thing{}},
 			payload: &OnePayload{
 				Data: &Node{
 					Type: "models",
@@ -1141,16 +1120,9 @@ func TestMarshalUnmarshalCompositeStruct(t *testing.T) {
 		})
 	}
 	{
-		type Model struct {
-			*Thing `jsonapi:"embedded,models"`
-			Foo    string `jsonapi:"attr,foo,omitempty"`
-			Bar    string `jsonapi:"attr,bar,omitempty"`
-			Bat    string `jsonapi:"attr,bat,omitempty"`
-		}
-
 		scenarios = append(scenarios, test{
 			name: "Model embeds pointer of Thing; jsonapi defines ID, Thing ID is set",
-			dst:  &Model{},
+			dst:  &Model{Thing: &Thing{}},
 			payload: &OnePayload{
 				Data: &Node{
 					Type: "models",
@@ -1199,6 +1171,10 @@ func TestMarshalUnmarshalCompositeStruct(t *testing.T) {
 		// run jsonapi unmarshal
 		if err := UnmarshalPayload(bytes.NewReader(payload), scenario.dst); err != nil {
 			t.Fatal(err)
+		}
+
+		if scenario.expected.(*Model).ID == scenario.dst.(*Model).ID {
+			t.Errorf("Expected matching ID's but were \n%#v\nAnd\n%#v\n", scenario.expected.(*Model).ID, scenario.dst.(*Model).ID)
 		}
 
 		// assert decoded and expected models are equal

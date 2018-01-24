@@ -259,8 +259,8 @@ func visitModelNode(model interface{}, included *map[string]*Node, sideload bool
 			if clientID != "" {
 				fb.node.ClientID = clientID
 			}
-		case annotationEmbedded:
-			if err := fb.doEmbedded(); err != nil {
+		case annotationExtends:
+			if err := fb.doExtends(); err != nil {
 				return nil, err
 			}
 		case annotationAttribute:
@@ -405,7 +405,7 @@ func (fb fieldbuilder) doAttribute() {
 	}
 }
 
-func (fb fieldbuilder) doEmbedded() error {
+func (fb fieldbuilder) doExtends() error {
 	if fb.node.Attributes == nil {
 		fb.node.Attributes = make(map[string]interface{})
 	}

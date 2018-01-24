@@ -552,26 +552,6 @@ func TestUnmarshalNestedRelationshipsSideloaded(t *testing.T) {
 	}
 }
 
-func TestUnmarshalEmbedded(t *testing.T) {
-	d := &Delorean{Car: &Car{}}
-	if err := UnmarshalPayload(testDeloreanPayload(), d); err != nil {
-		t.Fatal(err)
-	}
-
-	fmt.Println(fmt.Sprintf("d:%v", d.Car))
-	if *d.ID != "BTTF" {
-		t.Fatalf("expecting the make`%s`, got `%s`", "BTTF", d.Make)
-	}
-
-	if *d.Make != "Delorean" {
-		t.Fatalf("expecting the make`%s`, got `%s`", "Delorean", d.Make)
-	}
-
-	if !d.FluxCapacitorInstalled {
-		t.Fatal("expecting a fluc capicitor to be installed but it wasn't")
-	}
-}
-
 func TestUnmarshalNestedRelationshipsEmbedded_withClientIDs(t *testing.T) {
 	model := new(Blog)
 
